@@ -134,10 +134,7 @@ Actual cigarette sales in California fall much more rapidly than cigarette sales
 The estimated treatment effect in each year is calculated as
 
 $$
-\widehat{\tau}_t =
-Y_{\mathrm{California},t}
--
-Y_{\mathrm{Synthetic\ California},t}
+\widehat{\tau}_t = Y_{\mathrm{California},t} - Y_{\mathrm{Synthetic\ California},t}
 $$
 
 Before Proposition 99, the gap fluctuates around zero, consistent with the relatively close pretreatment fit observed in Figure 2.
