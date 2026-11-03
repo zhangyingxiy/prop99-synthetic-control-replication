@@ -149,4 +149,4 @@ The original study reports that over the entire 1989–2000 period, cigarette co
 
 ## Figure 4: In-Space Placebo Tests
 
-![Placebo tests](results/figures/
+![Placebo tests](results/figures/figure4_all_placebos.png)
