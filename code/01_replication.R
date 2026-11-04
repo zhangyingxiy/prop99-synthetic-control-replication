@@ -110,7 +110,7 @@ sc <- smoking %>%
     unit = state,
     time = year,
     i_unit = "California",
-    i_time = 1989,
+    i_time = 1988,
     generate_placebos = TRUE
   ) %>%
   
