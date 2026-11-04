@@ -156,10 +156,6 @@ sc <- smoking %>%
 
 fig2 <- sc %>%
   plot_trends() +
-  geom_vline(
-    xintercept = 1988,
-    linetype = "dotted"
-  ) +
   labs(
     title = NULL,
     x = "Year",
@@ -197,10 +193,6 @@ ggsave(
 
 fig3 <- sc %>%
   plot_differences() +
-  geom_vline(
-    xintercept = 1988,
-    linetype = "dotted"
-  ) +
   geom_hline(
     yintercept = 0,
     linetype = "dashed"
@@ -240,10 +232,6 @@ ggsave(
 fig4 <- sc %>%
   plot_placebos(
     prune = FALSE
-  ) +
-  geom_vline(
-    xintercept = 1988,
-    linetype = "dotted"
   ) +
   geom_hline(
     yintercept = 0,
