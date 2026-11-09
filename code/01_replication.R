@@ -110,7 +110,7 @@ sc <- smoking %>%
     unit = state,
     time = year,
     i_unit = "California",
-    i_time = 1989,
+    i_time = 1988,
     generate_placebos = TRUE
   ) %>%
   
@@ -143,9 +143,9 @@ sc <- smoking %>%
   
   generate_weights(
     optimization_window = 1970:1988,
-    Margin.ipop = 0.02,
-    Sigf.ipop = 7,
-    Bound.ipop = 6
+    margin_ipop = 0.02,
+    sigf_ipop = 7,
+    bound_ipop = 6
   ) %>%
   
   generate_control()
@@ -156,10 +156,6 @@ sc <- smoking %>%
 
 fig2 <- sc %>%
   plot_trends() +
-  geom_vline(
-    xintercept = 1988,
-    linetype = "dotted"
-  ) +
   labs(
     title = NULL,
     x = "Year",
@@ -197,10 +193,6 @@ ggsave(
 
 fig3 <- sc %>%
   plot_differences() +
-  geom_vline(
-    xintercept = 1988,
-    linetype = "dotted"
-  ) +
   geom_hline(
     yintercept = 0,
     linetype = "dashed"
@@ -241,10 +233,6 @@ fig4 <- sc %>%
   plot_placebos(
     prune = FALSE
   ) +
-  geom_vline(
-    xintercept = 1988,
-    linetype = "dotted"
-  ) +
   geom_hline(
     yintercept = 0,
     linetype = "dashed"
@@ -268,4 +256,147 @@ ggsave(
   width = 7,
   height = 5,
   dpi = 300
+)
+
+# 2. Validate the synthetic control
+
+# 2. Validate the synthetic control
+# Always extract results from the current fitted model.
+
+unit_weights <- sc %>%
+  grab_unit_weights()
+
+predictor_weights <- sc %>%
+  grab_predictor_weights()
+
+balance_table <- sc %>%
+  grab_balance_table()
+
+sc_results <- sc %>%
+  grab_synthetic_control() %>%
+  mutate(gap = real_y - synth_y)
+
+# Check donor weights and sample periods.
+stopifnot(
+  abs(sum(unit_weights$weight) - 1) < 1e-6,
+  all(unit_weights$weight >= -1e-8),
+  nrow(sc_results) == 31,
+  setequal(sc_results$time_unit, 1970:2000),
+  !anyDuplicated(sc_results$time_unit),
+  all(is.finite(sc_results$gap))
+)
+
+# Pretreatment fit: 1970–1988.
+pre_fit <- sc_results %>%
+  filter(time_unit <= 1988) %>%
+  summarise(
+    years = n(),
+    MSPE = mean(gap^2),
+    RMSPE = sqrt(mean(gap^2))
+  )
+
+# Average estimated effect: 1989–2000.
+# Percentage reduction uses average synthetic sales as the denominator.
+post_effect <- sc_results %>%
+  filter(time_unit >= 1989) %>%
+  summarise(
+    years = n(),
+    average_gap_packs = mean(gap),
+    reduction_percent = 100 * (1 - mean(real_y) / mean(synth_y))
+  )
+
+effect_2000 <- sc_results %>%
+  filter(time_unit == 2000)
+
+# 3. Placebo inference
+# tidysynth 0.2.1 reuses California's predictor weights for placebos.
+# These results describe that implementation.
+
+placebo_stats <- sc %>%
+  grab_significance()
+
+ca_pre <- placebo_stats %>%
+  filter(unit_name == "California") %>%
+  pull(pre_mspe)
+
+ca_ratio <- placebo_stats %>%
+  filter(unit_name == "California") %>%
+  pull(mspe_ratio)
+
+# Verify agreement between our calculation and package diagnostics.
+stopifnot(
+  isTRUE(all.equal(pre_fit$MSPE, ca_pre, tolerance = 1e-6))
+)
+
+# Cutoffs refer to MSPE, not RMSPE.
+# Rank p-values include California in the comparison set.
+cutoff_summary <- bind_rows(
+  lapply(c(20, 5, 2), function(multiplier) {
+    
+    eligible <- placebo_stats %>%
+      filter(pre_mspe <= multiplier * ca_pre)
+    
+    tibble(
+      pre_mspe_multiplier = multiplier,
+      donor_states_retained = sum(eligible$type == "Donor"),
+      total_states = nrow(eligible),
+      rank_p_value = mean(eligible$mspe_ratio >= ca_ratio)
+    )
+  })
+)
+
+# 4. Display the main checks
+
+print(unit_weights %>% filter(weight > 0.01))
+print(as.data.frame(balance_table), digits = 6, row.names = FALSE)
+print(pre_fit)
+print(post_effect)
+print(effect_2000)
+
+print(
+  placebo_stats %>% filter(unit_name == "California"),
+  width = Inf
+)
+
+print(cutoff_summary)
+
+# 5. Save results from this same model run
+
+dir.create("results/tables", recursive = TRUE, showWarnings = FALSE)
+
+tables_to_save <- list(
+  unit_weights = unit_weights,
+  predictor_weights = predictor_weights,
+  balance_table = balance_table,
+  annual_results = sc_results,
+  pre_fit = pre_fit,
+  post_effect = post_effect,
+  effect_2000 = effect_2000,
+  placebo_stats = placebo_stats,
+  cutoff_summary = cutoff_summary
+)
+
+for (table_name in names(tables_to_save)) {
+  write.csv(
+    tables_to_save[[table_name]],
+    file = paste0("results/tables/", table_name, ".csv"),
+    row.names = FALSE
+  )
+}
+
+saveRDS(
+  c(
+    list(model = sc),
+    tables_to_save,
+    list(
+      tidysynth_version = as.character(packageVersion("tidysynth")),
+      session_info = sessionInfo()
+    )
+  ),
+  file = "results/validation_checkpoint.rds"
+)
+
+writeLines(
+  capture.output(sessionInfo()),
+  con = "results/session_info.txt"
 )

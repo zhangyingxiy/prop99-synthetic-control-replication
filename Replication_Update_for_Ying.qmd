@@ -1,0 +1,163 @@
+---
+title: "Proposition 99 replication: validation update"
+subtitle: "Working notes for Feng Yi Chew and Ying Zhang"
+date: "2026-11-08"
+format:
+  html:
+    toc: true
+    embed-resources: true
+    theme: cosmo
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+library(ggplot2)
+read_table <- function(name) read.csv(paste0("results/tables/", name, ".csv"))
+weights <- read_table("unit_weights")
+balance <- read_table("balance_table")
+pre <- read_table("pre_fit")
+post <- read_table("post_effect")
+end <- read_table("effect_2000")
+annual <- read_table("annual_results")
+shared <- read_table("cutoff_summary")
+ind <- read.csv("results/independent_placebos/cutoff_summary.csv")
+ind_stats <- read.csv("results/independent_placebos/placebo_stats.csv")
+ind_annual <- read.csv("results/independent_placebos/annual_results.csv")
+ca <- subset(ind_stats, unit_name == "California")
+```
+
+## Main finding and current status
+
+The current analysis closely reproduces the direction and approximate size of the paper's estimated reduction in California cigarette sales. It is not an exact numerical replication. The same five states dominate synthetic California. Independently optimizing the placebo models improves pretreatment fits substantially relative to the package's default procedure, but some differences from the published results remain.
+
+This update documents completed checks and remaining work. It is a partner update, not the final presentation. Our two-person group and recorded 10-minute presentation are approved. The presentation still needs the research question, data, empirical strategy, original and replicated findings, lessons learned, and connection to our final project.
+
+## Changes made and why
+
+| Change | Reason |
+|---|---|
+| Set `i_time = 1988` | In `tidysynth`, this is the last pretreatment year. Treatment starts in 1989. The optimization window was already 1970–1988. |
+| Removed added vertical markers from Figures 2–4 | The package already adds a marker; the additional layer created duplicate boundaries. Figure 1 retains its custom marker. |
+| Changed optimizer arguments to `margin_ipop`, `sigf_ipop`, and `bound_ipop` | Version 0.2.1 expects these names. The older names were not forwarded to the optimizer. Intended values are 0.02, 7, and 6. |
+| Consolidated diagnostics in the main script | Console-only calculations were not reproducible by sourcing the script. |
+| Regenerated all diagnostics from one model | An earlier checkpoint mixed updated model diagnostics with stale annual outcomes. This has been corrected and checked. |
+| Added a separate independent-placebo script | The package default reuses California's predictor weights for placebo units. The alternative estimates predictor weights separately for each unit. |
+
+## Specification and checks
+
+The data are `tidysynth::smoking`, with California and 38 donor states, observed from 1970 through 2000. There are 19 pretreatment years and 12 post-treatment years. The predictors are mean log income, age 15–24 share, and retail price over 1980–1988; mean beer consumption over 1984–1988; and cigarette sales in 1975, 1980, and 1988. Weight optimization uses 1970–1988 outcomes.
+
+Donor weights sum to one and are nonnegative. The annual table contains the expected 31 unique years and finite gaps. Saved CSVs were checked against their checkpoint objects. The independent California fit agrees with the baseline, so the alternative placebo analysis does not change California's estimated effect.
+
+### Donor weights
+
+Published weights below are from Table 2 of Abadie, Diamond, and Hainmueller (2010). Percentages are displayed; calculations use unrounded weights.
+
+```{r}
+paper_weights <- data.frame(unit=c("Colorado", "Connecticut", "Montana", "Nevada", "Utah"), Published=c(.164,.069,.199,.234,.334))
+w <- merge(paper_weights, weights, by="unit")
+w$Published <- 100*w$Published
+w$weight <- 100*w$weight
+names(w) <- c("State", "Published (%)", "Replication (%)")
+knitr::kable(w, digits=3)
+```
+
+### Predictor balance
+
+The age variable is stored as a proportion. Log-income balance is visibly weaker than balance on the other predictors; its optimized predictor weight is small. Predictor weights describe the matching objective, not causal importance. The donor average below is the package's unweighted sample average and should not be equated to the paper's population-weighted comparator.
+
+```{r}
+balance$synthetic_minus_actual <- balance$synthetic_California - balance$California
+knitr::kable(balance, digits=5)
+```
+
+## Main effect estimates
+
+Gaps are actual minus synthetic sales. Negative values indicate fewer observed packs per capita than the synthetic counterfactual.
+
+```{r}
+summary_results <- data.frame(
+  Quantity=c("Pretreatment MSPE", "Pretreatment RMSPE (packs)", "Average gap, 1989–2000 (packs)", "Reduction relative to mean synthetic sales (%)", "Gap in 2000 (packs)", "Post/pre-MSPE ratio", "Full-sample rank p-value"),
+  Estimate=c(pre$MSPE, pre$RMSPE, post$average_gap_packs, post$reduction_percent, end$gap, ca$mspe_ratio, 1/39))
+knitr::kable(summary_results, digits=4)
+```
+
+The percentage calculation is `100 * (1 - mean(actual) / mean(synthetic))` over 1989–2000. It is not the mean of annual percentage reductions. The paper reports a pretreatment MSPE of about 3, an average reduction of almost 20 packs (approximately 25%), and about 26 fewer packs in 2000. Our results are close in magnitude, with remaining numerical differences.
+
+```{r}
+#| fig-cap: "Verified California gap from the corrected baseline model. The line marks the last pretreatment year."
+ggplot(annual, aes(time_unit, gap)) +
+  geom_hline(yintercept=0, linetype="dashed", colour="grey50") +
+  geom_vline(xintercept=1988, linetype="dotted") +
+  geom_line(colour="#A32379", linewidth=.9) +
+  labs(x="Year", y="Actual minus synthetic sales (packs per capita)") + theme_classic()
+```
+
+## Placebo implementation and sensitivity
+
+The default `generate_weights()` in installed `tidysynth` 0.2.1 optimizes predictor weights for California and then reuses those weights for the placebo states. Donor-state weights are still fitted separately. This differs from independently choosing both predictor and donor weights for every placebo unit.
+
+`code/02_independent_placebos.R` makes one separate call per state with `generate_placebos = FALSE`, keeping all the other states, including California, eligible as donors. Predictor windows, outcome optimization window, and solver settings are unchanged. The purpose is to isolate predictor-weight reuse, not to select a procedure because it gives smaller p-values.
+
+```{r}
+comparison <- data.frame(
+  Cutoff=c("None", "20 times", "5 times", "2 times"),
+  Default_donors=c(38, shared$donor_states_retained),
+  Independent_donors=ind$donor_states_retained,
+  Published_donors=c(38,34,29,19),
+  Default_rank_p=c(1/39, shared$rank_p_value),
+  Independent_rank_p=ind$rank_p_value)
+knitr::kable(comparison, digits=4)
+```
+
+Cutoffs exclude donor states with pretreatment **MSPE**, not RMSPE, above the stated multiple of California's. Rank p-values are recalculated within each retained set, including California. California has the highest ratio in every set under both procedures. The strictest independent comparison contains 18 donors plus California; its minimum possible p-value is therefore 1/19 = 0.0526. Filtering changes the comparison set and p-value resolution.
+
+These are placebo rank comparisons, not conventional contingency-table Fisher tests. Their interpretation as exact randomization inference requires an assignment/exchangeability justification that is not established by this observational policy setting. They do not give the probability that the policy worked. Ratios use squared errors; effect direction comes from the signed gaps.
+
+```{r}
+#| fig-cap: "Post/pre-MSPE ratios with predictor weights optimized separately for each state."
+ind_stats$unit_name <- factor(ind_stats$unit_name, levels=ind_stats$unit_name[order(ind_stats$mspe_ratio)])
+ggplot(ind_stats, aes(unit_name, mspe_ratio, fill=type)) + geom_col() +
+  coord_flip() + scale_fill_manual(values=c(Donor="grey70", Treated="#A32379")) +
+  labs(x=NULL, y="Post/pre-MSPE ratio", fill=NULL) + theme_classic() +
+  theme(legend.position="top", axis.text.y=element_text(size=7))
+```
+
+## Remaining differences and limits
+
+- Independent placebo optimization accounts for a substantial part of the poor-fit discrepancy, but retained donor counts still differ from the paper. Remaining numerical differences have not been fully traced to optimizer behavior, data, or other implementation details. We should not claim an exact replication.
+- Figure 1 compares California with the unweighted mean of the 38 available donor states. It does not reproduce a population-weighted rest-of-US series. The distinction needs to be explicit in the README and presentation.
+- The README still needs synchronization with the corrected timing, solver settings, numerical estimates, and placebo procedures.
+- Close pretreatment fit and unusual placebo ratios support the counterfactual argument but do not establish all identification assumptions. Discuss contemporaneous California-specific shocks, possible spillovers, and the distinction between tax-paid sales and actual consumption.
+- The final-project connection must reflect our actual planned project. We should not invent a connection simply to satisfy the presentation requirement.
+
+## Files and reproduction
+
+Run from the repository root using `Replication.Rproj`:
+
+```{r}
+#| eval: false
+source("code/01_replication.R")
+source("code/02_independent_placebos.R")
+```
+
+The first script generates the baseline figures, nine CSV tables, session information, and `results/validation_checkpoint.rds`. The second creates separate comparison outputs under `results/independent_placebos/`. Each independently fitted model takes additional time.
+
+This QMD reads the saved CSVs; it does not refit the models. To refresh the report, run both scripts first, then render:
+
+```bash
+quarto render Replication_Update_for_Ying.qmd
+```
+
+Work is on `fengyi-validation`. The earlier timing, plotting, and consistent-validation commits are saved locally. The independent-placebo script, its outputs, and this report require a subsequent commit. No sending, pushing, or merging is performed by this report.
+
+## Suggested presentation use
+
+Use one validation slide for donor weights and fit, one results slide for the estimated effects and gap plot, and one inference slide for the placebo-ratio comparison. State the close substantive replication and disclose the remaining numerical discrepancies. Put the cutoff sensitivity table in an appendix or summarize it briefly. The final 10-minute recording should also cover the policy, data, method, assumptions, lessons, and final-project connection, with a timed script divided between both speakers.
+
+## Reference
+
+Abadie, A., Diamond, A., & Hainmueller, J. (2010). Synthetic control methods for comparative case studies: Estimating the effect of California's tobacco control program. *Journal of the American Statistical Association, 105*(490), 493–505. [https://doi.org/10.1198/jasa.2009.ap08746](https://doi.org/10.1198/jasa.2009.ap08746). Published benchmarks refer to Tables 1–2, Figures 5–8, and Sections 3.3–3.4.

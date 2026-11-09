@@ -1,0 +1,9 @@
+.reveal { font-family: Arial, sans-serif; font-size: 29px; color: #182d40; }
+.reveal h2 { font-size: 1.45em; color: #182d40; margin-bottom: 0.65em; }
+.reveal h3 { font-size: 1.1em; color: #a32379; }
+.reveal table { font-size: 0.82em; margin: 0.5em auto; }
+.reveal table td, .reveal table th { padding: 0.25em 0.5em; }
+.reveal .small { font-size: 0.58em; color: #52616b; }
+.reveal li { margin-bottom: 0.35em; }
+.reveal strong { color: #a32379; }
+.reveal img { max-height: 440px; }
